@@ -1,6 +1,6 @@
 # DG SCSS Color Preview
 
-Inline color previews for SCSS variables, CSS custom properties, and derived color tokens.
+VS Code inline color previews for SCSS variables, CSS custom properties, and derived color tokens.
 
 DG SCSS Color Preview is designed for projects where colors are not only defined as direct literals, but also through SCSS variables, chained token systems, interpolation, and custom helper functions.
 
@@ -24,7 +24,7 @@ This extension includes support for custom SCSS helper patterns, including funct
 }
 ```
 
-## Example Screenshot
+## Example
 
 ![DG SCSS Color Preview example](img/screenshot.png)
 
@@ -56,18 +56,15 @@ The goal is to make these structures easier to read at a glance by showing the r
 
 ## Best suited for
 
-DG SCSS Color Preview is particularly useful in projects with:
-
 - SCSS design tokens
 - semantic color systems
 - derived palette scales
 - custom color helper functions
-- CSS custom property exports
-- larger codebases where colors are reused through variables instead of being hardcoded repeatedly
+- CSS custom properties
 
 ## Installation
 
-The repository already includes a packaged `.vsix` file. You can install it via **Extensions → ... → Install from VSIX...**.
+The repository already includes a packaged `.vsix` file. You can install it via **Extensions → ... → Install from VSIX**.
 
 If you want to inspect, modify, or test the extension locally, open the project folder in VS Code and press `F5` to launch it in an Extension Development Host.
 
@@ -77,6 +74,4 @@ If you want to inspect, modify, or test the extension locally, open the project 
 
 ## Notes
 
-DG SCSS Color Preview is intentionally focused on practical SCSS and CSS color workflows. It is not a full Sass compiler, but it is built to handle the kinds of token and reference structures commonly used in real-world projects.
-
-It is particularly useful for developers who want more informative color previews in variable-driven styling systems than standard literal-only previews usually provide.
+DG SCSS Color Preview is intentionally focused on practical SCSS and CSS color workflows. It is not a Sass compiler, it is only built to handle token and reference structures commonly used in real-world projects. It is particularly useful for developers who want more informative color previews in variable-driven styling systems than standard literal-only previews usually provide.
