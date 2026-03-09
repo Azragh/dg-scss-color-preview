@@ -4,6 +4,15 @@
   "description": "Underline color previews for SCSS variables, CSS custom properties, and color literals.",
   "version": "0.1.7",
   "publisher": "Azragh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/azragh/dg-scss-color-preview.git"
+  },
+  "homepage": "https://github.com/azragh/dg-scss-color-preview",
+  "bugs": {
+    "url": "https://github.com/azragh/dg-scss-color-preview/issues"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -13,11 +22,17 @@
   "activationEvents": [
     "onLanguage:scss",
     "onLanguage:sass",
-    "onLanguage:css",
-    "onCommand:scssColorPreview.refresh"
+    "onLanguage:css"
   ],
   "main": "./src/extension.js",
   "icon": "img/thumbnail.png",
+  "files": [
+    "src",
+    "img",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
   "contributes": {
     "commands": [
       {
