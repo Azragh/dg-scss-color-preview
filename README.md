@@ -65,6 +65,12 @@ DG SCSS Color Preview is particularly useful in projects with:
 - CSS custom property exports
 - larger codebases where colors are reused through variables instead of being hardcoded repeatedly
 
+## Installation
+
+The repository already includes a packaged `.vsix` file. You can install it via **Extensions → ... → Install from VSIX...**.
+
+If you want to inspect, modify, or test the extension locally, open the project folder in VS Code and press `F5` to launch it in an Extension Development Host.
+
 ## Command
 
 - `SCSS Color Preview: Refresh`
