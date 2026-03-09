@@ -1,0 +1,44 @@
+{
+  "name": "dg-scss-color-preview",
+  "displayName": "DG SCSS Color Preview",
+  "description": "Underline color previews for SCSS variables, CSS custom properties, and color literals.",
+  "version": "0.1.7",
+  "publisher": "Azragh",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:scss",
+    "onLanguage:sass",
+    "onLanguage:css",
+    "onCommand:scssColorPreview.refresh"
+  ],
+  "main": "./src/extension.js",
+  "icon": "img/thumbnail.png",
+  "contributes": {
+    "commands": [
+      {
+        "command": "scssColorPreview.refresh",
+        "title": "SCSS Color Preview: Refresh"
+      }
+    ],
+    "configuration": {
+      "title": "SCSS Color Preview",
+      "properties": {
+        "scssColorPreview.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inline color swatches for SCSS variables and CSS custom properties."
+        },
+        "scssColorPreview.maxFiles": {
+          "type": "number",
+          "default": 300,
+          "description": "Maximum number of CSS/SCSS files to scan in the workspace."
+        }
+      }
+    }
+  }
+}
