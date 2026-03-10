@@ -16,7 +16,7 @@ This includes support for custom SCSS helper patterns such as:
 
 ```scss
 @function alpha($color, $alpha) {
-  @return unquote("color-mix(in srgb, " + $color + " " + ($alpha * 100%) + ", transparent)");
+  @return string.unquote("color-mix(in srgb, #{$color} #{($alpha * 100%)}, transparent)");
 }
 
 @function tint($color, $percentage) {
