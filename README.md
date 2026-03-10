@@ -59,14 +59,19 @@ The screenshot above shows how the extension previews resolved colors directly i
 - Supports standard CSS color names such as `white`, `black`, `red`, `orange`, `green`, or `dodgerblue`
 - Avoids duplicate decorations where a resolved token and a nested literal would otherwise overlap
 
+## Planned Features
+
+- Support for color patterns:
+  - `color.scale(...)`
+  - `color.adjust(...)`
+  - `color.change(...)`
+
 ## Best suited for
 
 - SCSS design tokens
+- CSS custom properties
 - semantic color systems
 - derived palette scales
-- custom color helper functions
-- CSS custom properties
-- token exports from SCSS to CSS variables
 
 ## Installation
 
