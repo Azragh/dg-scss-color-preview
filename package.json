@@ -1,7 +1,7 @@
 {
   "name": "dg-scss-color-preview",
   "displayName": "DG SCSS Color Preview",
-  "description": "Underline color previews for SCSS variables, CSS custom properties, and color literals.",
+  "description": "Inline color previews for SCSS variables, CSS custom properties, and selected derived color patterns.",
   "version": "0.1.7",
   "publisher": "Azragh",
   "license": "MIT",
