@@ -282,10 +282,15 @@ function parseLiteralColorForDecoration(literal) {
   const hsl = parseHslFunc(literal);
   if (hsl) return colorToCss(hsl);
 
+  const oklab = parseOklabFunc(literal);
+  if (oklab) return colorToCss(oklab);
+
+  const oklch = parseOklchFunc(literal);
+  if (oklch) return colorToCss(oklch);
+
   const named = parseNamedColor(literal);
   if (named) return colorToCss(named);
 
-  if (/^(oklab|oklch)\(/i.test(literal)) return literal;
   return null;
 }
 
@@ -333,7 +338,7 @@ function evaluateExpression(expr, ctx) {
   const varMatch = expr.match(/^var\(\s*(--[a-zA-Z0-9_-]+)\s*(?:,[^)]+)?\)$/i);
   if (varMatch) return ctx.resolveCss(varMatch[1].slice(2));
 
-  const mixMatch = expr.match(/^color\.mix\((.*)\)$/i);
+  const mixMatch = expr.match(/^(?:color\.)?mix\((.*)\)$/i);
   if (mixMatch) {
     const args = splitArgs(mixMatch[1]);
     if (args.length >= 2) {
@@ -374,6 +379,15 @@ function evaluateExpression(expr, ctx) {
       if (color && alpha !== null) return { ...color, a: clamp(alpha, 0, 1) };
     }
   }
+
+  const oklab = parseOklabFunc(expr);
+  if (oklab) return oklab;
+
+  const oklch = parseOklchFunc(expr);
+  if (oklch) return oklch;
+
+  const rgbaVar = parseRgbLikeWithContext(expr, ctx);
+  if (rgbaVar) return rgbaVar;
 
   const hslFromMatch = expr.match(/^hsl\(\s*from\s+var\(\s*(--[a-zA-Z0-9_-]+)\s*\)\s+h\s+(calc\([^)]*\)|s|[\d.%-]+)\s+(calc\([^)]*\)|l|[\d.%-]+)\s*\)$/i);
   if (hslFromMatch) {
@@ -620,18 +634,121 @@ function parseHslFunc(value) {
   if (!m) return null;
   const parts = m[1].split(/[\s,\/]+/).filter(Boolean);
   if (parts.length < 3) return null;
-  const h = normalizeHue(parseFloat(parts[0]));
+  const h = parseHueValue(parts[0]);
   const s = parsePercentValue(parts[1]);
   const l = parsePercentValue(parts[2]);
-  const a = parts[3] != null ? clamp(parseFloat(parts[3]), 0, 1) : 1;
+  const a = parts[3] != null ? parseAlphaValue(parts[3]) : 1;
   if ([h, s, l, a].some((v) => v === null || Number.isNaN(v))) return null;
   return hslToRgb(h, s, l, a);
 }
 
+function parseRgbLikeWithContext(value, ctx) {
+  const m = value.match(/^rgba?\((.*)\)$/i);
+  if (!m) return null;
+  const inner = m[1].trim();
+
+  const commaArgs = splitArgs(inner);
+  if (commaArgs.length === 1) {
+    const base = evaluateExpression(commaArgs[0], ctx);
+    if (base) return base;
+  }
+  if (commaArgs.length === 2) {
+    const base = evaluateExpression(commaArgs[0], ctx);
+    const alpha = parseAlphaValue(commaArgs[1]);
+    if (base && alpha !== null) return { ...base, a: alpha };
+  }
+
+  const slashParts = splitTopLevelBySlash(inner);
+  if (slashParts.length === 2) {
+    const base = evaluateExpression(slashParts[0], ctx);
+    const alpha = parseAlphaValue(slashParts[1]);
+    if (base && alpha !== null) return { ...base, a: alpha };
+  }
+
+  return null;
+}
+
+function splitTopLevelBySlash(input) {
+  const parts = [];
+  let current = '';
+  let depth = 0;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    if (ch === '/' && depth === 0) {
+      parts.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+function parseOklabFunc(value) {
+  const m = value.match(/^oklab\((.*)\)$/i);
+  if (!m) return null;
+  const parts = m[1].split(/[\s,\/]+/).filter(Boolean);
+  if (parts.length < 3) return null;
+  const L = parseUnitInterval(parts[0]);
+  const a = parseFloat(parts[1]);
+  const b = parseFloat(parts[2]);
+  const alpha = parts[3] != null ? parseAlphaValue(parts[3]) : 1;
+  if ([L, a, b, alpha].some((v) => v === null || Number.isNaN(v))) return null;
+  return oklabToSrgb(L, a, b, alpha);
+}
+
+function parseOklchFunc(value) {
+  const m = value.match(/^oklch\((.*)\)$/i);
+  if (!m) return null;
+  const parts = m[1].split(/[\s,\/]+/).filter(Boolean);
+  if (parts.length < 3) return null;
+  const L = parseUnitInterval(parts[0]);
+  const C = parseFloat(parts[1]);
+  const H = parseHueValue(parts[2]);
+  const alpha = parts[3] != null ? parseAlphaValue(parts[3]) : 1;
+  if ([L, C, H, alpha].some((v) => v === null || Number.isNaN(v))) return null;
+  const hr = (H * Math.PI) / 180;
+  const a = C * Math.cos(hr);
+  const b = C * Math.sin(hr);
+  return oklabToSrgb(L, a, b, alpha);
+}
+
+function parseUnitInterval(str) {
+  const s = String(str).trim();
+  if (/^-?(?:\d+(?:\.\d+)?|\.\d+)%$/.test(s)) return clamp(parseFloat(s) / 100, 0, 1);
+  if (/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(s)) {
+    const n = parseFloat(s);
+    // Accept CSS-style lightness values written without a percent sign
+    // when they are clearly outside the normalized 0..1 range.
+    return clamp(n > 1 ? n / 100 : n, 0, 1);
+  }
+  return null;
+}
+
+function parseAlphaValue(str) {
+  const s = String(str).trim();
+  if (/^-?(?:\d+(?:\.\d+)?|\.\d+)%$/.test(s)) return clamp(parseFloat(s) / 100, 0, 1);
+  if (/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(s)) return clamp(parseFloat(s), 0, 1);
+  return null;
+}
+
+function parseHueValue(str) {
+  const s = String(str).trim().toLowerCase();
+  const n = parseFloat(s);
+  if (Number.isNaN(n)) return null;
+  if (s.endsWith('turn')) return normalizeHue(n * 360);
+  if (s.endsWith('rad')) return normalizeHue(n * (180 / Math.PI));
+  if (s.endsWith('grad')) return normalizeHue(n * 0.9);
+  return normalizeHue(n);
+}
+
 function parsePercent(str) {
   const clean = cleanWeightArg(String(str)).trim();
-  if (/^-?\d+(?:\.\d+)?%$/.test(clean)) return parseFloat(clean);
-  if (/^-?\d+(?:\.\d+)?$/.test(clean)) return parseFloat(clean);
+  if (/^-?(?:\d+(?:\.\d+)?|\.\d+)%$/.test(clean)) return parseFloat(clean);
+  if (/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(clean)) return parseFloat(clean);
   return null;
 }
 
@@ -642,7 +759,7 @@ function parsePercentValue(str) {
 }
 
 function parseNumber(str) {
-  const m = String(str).trim().match(/^-?\d+(?:\.\d+)?/);
+  const m = String(str).trim().match(/^-?(?:\d+(?:\.\d+)?|\.\d+)/);
   return m ? parseFloat(m[0]) : null;
 }
 
@@ -730,6 +847,33 @@ function hslToRgb(h, s, l, a = 1) {
   }
 
   return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255), a };
+}
+
+function oklabToSrgb(L, a, b, alpha = 1) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+
+  const l = l_ * l_ * l_;
+  const m = m_ * m_ * m_;
+  const s = s_ * s_ * s_;
+
+  const rLin = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const gLin = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const bLin = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+
+  return {
+    r: Math.round(linearToSrgb(rLin) * 255),
+    g: Math.round(linearToSrgb(gLin) * 255),
+    b: Math.round(linearToSrgb(bLin) * 255),
+    a: alpha
+  };
+}
+
+function linearToSrgb(channel) {
+  const v = clamp(channel, 0, 1);
+  if (v <= 0.0031308) return 12.92 * v;
+  return 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
 }
 
 function normalizeHue(h) {
