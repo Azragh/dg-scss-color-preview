@@ -2,8 +2,10 @@ const vscode = require('vscode');
 const path = require('path');
 
 let output;
-let refreshTimer = null;
+let heavyRefreshTimer = null;
+let lightRefreshTimer = null;
 let decorationCache = new Map();
+let editorDecorationState = new WeakMap();
 let latestWorkspaceState = {
   tokenMap: new Map(),
   parsedFiles: 0,
@@ -13,20 +15,32 @@ let latestWorkspaceState = {
 function activate(context) {
   output = vscode.window.createOutputChannel('SCSS Color Preview');
 
-  const refresh = () => scheduleRefresh('manual');
+  const refresh = () => scheduleHeavyRefresh('manual');
 
   context.subscriptions.push(
     vscode.commands.registerCommand('scssColorPreview.refresh', refresh),
-    vscode.workspace.onDidChangeTextDocument((e) => scheduleRefresh(`change:${path.basename(e.document.fileName)}`)),
-    vscode.workspace.onDidOpenTextDocument((doc) => scheduleRefresh(`open:${path.basename(doc.fileName)}`)),
-    vscode.window.onDidChangeActiveTextEditor(() => scheduleRefresh('active-editor')),
-    vscode.window.onDidChangeVisibleTextEditors(() => scheduleRefresh('visible-editors')),
-    vscode.workspace.onDidChangeWorkspaceFolders(() => scheduleRefresh('workspace-folders')),
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      if (!isSupportedDocument(e.document)) return;
+      scheduleHeavyRefresh(`change:${path.basename(e.document.fileName)}`);
+    }),
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      if (!isSupportedDocument(doc)) return;
+      scheduleHeavyRefresh(`open:${path.basename(doc.fileName)}`);
+    }),
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (!editor || !isSupportedDocument(editor.document)) return;
+      scheduleLightRefresh('active-editor');
+    }),
+    vscode.window.onDidChangeVisibleTextEditors((editors) => {
+      if (!editors.some((editor) => isSupportedDocument(editor.document))) return;
+      scheduleLightRefresh('visible-editors');
+    }),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => scheduleHeavyRefresh('workspace-folders')),
     { dispose: disposeDecorationCache },
     output
   );
 
-  scheduleRefresh('activate');
+  scheduleHeavyRefresh('activate');
 }
 
 function deactivate() {
@@ -40,37 +54,72 @@ function disposeDecorationCache() {
   decorationCache.clear();
 }
 
-function scheduleRefresh(reason) {
+function isSupportedDocument(document) {
+  return !!document && ['scss', 'sass', 'css'].includes(document.languageId);
+}
+
+function getVisibleStyleEditors() {
+  return vscode.window.visibleTextEditors.filter((editor) => isSupportedDocument(editor.document));
+}
+
+function scheduleHeavyRefresh(reason) {
   if (!vscode.workspace.getConfiguration('scssColorPreview').get('enabled', true)) {
     clearDecorations();
     return;
   }
 
-  if (refreshTimer) clearTimeout(refreshTimer);
+  if (heavyRefreshTimer) clearTimeout(heavyRefreshTimer);
 
-  refreshTimer = setTimeout(async () => {
+  heavyRefreshTimer = setTimeout(async () => {
     try {
-      await fullRefresh(reason);
+      await fullRefresh(reason, { rebuildState: true });
     } catch (err) {
       output.appendLine(`[error] ${String(err && err.stack ? err.stack : err)}`);
     }
-  }, 150);
+  }, 450);
 }
 
-async function fullRefresh(reason) {
-  const editors = vscode.window.visibleTextEditors.filter((editor) => ['scss', 'sass', 'css'].includes(editor.document.languageId));
+function scheduleLightRefresh(reason) {
+  if (!vscode.workspace.getConfiguration('scssColorPreview').get('enabled', true)) {
+    clearDecorations();
+    return;
+  }
+
+  if (lightRefreshTimer) clearTimeout(lightRefreshTimer);
+
+  lightRefreshTimer = setTimeout(() => {
+    try {
+      applyLatestStateToVisibleEditors(reason);
+    } catch (err) {
+      output.appendLine(`[error] ${String(err && err.stack ? err.stack : err)}`);
+    }
+  }, 120);
+}
+
+async function fullRefresh(reason, options = {}) {
+  const { rebuildState = true } = options;
+  const editors = getVisibleStyleEditors();
   if (!editors.length) return;
 
-  output.clear();
-  output.appendLine(`SCSS Color Preview refresh: ${reason}`);
+  if (rebuildState) {
+    output.clear();
+    output.appendLine(`SCSS Color Preview refresh: ${reason}`);
 
-  latestWorkspaceState = await buildWorkspaceState();
-  output.appendLine(`Parsed files: ${latestWorkspaceState.parsedFiles}`);
-  output.appendLine(`Resolved tokens: ${latestWorkspaceState.tokenMap.size}`);
-  if (latestWorkspaceState.errors.length) {
-    output.appendLine('Errors:');
-    latestWorkspaceState.errors.forEach((e) => output.appendLine(`- ${e}`));
+    latestWorkspaceState = await buildWorkspaceState();
+    output.appendLine(`Parsed files: ${latestWorkspaceState.parsedFiles}`);
+    output.appendLine(`Resolved tokens: ${latestWorkspaceState.tokenMap.size}`);
+    if (latestWorkspaceState.errors.length) {
+      output.appendLine('Errors:');
+      latestWorkspaceState.errors.forEach((e) => output.appendLine(`- ${e}`));
+    }
   }
+
+  applyLatestStateToVisibleEditors(reason);
+}
+
+function applyLatestStateToVisibleEditors(reason = 'light') {
+  const editors = getVisibleStyleEditors();
+  if (!editors.length) return;
 
   for (const editor of editors) {
     applyDecorations(editor, latestWorkspaceState.tokenMap);
@@ -79,9 +128,7 @@ async function fullRefresh(reason) {
 
 function clearDecorations() {
   for (const editor of vscode.window.visibleTextEditors) {
-    for (const type of decorationCache.values()) {
-      editor.setDecorations(type, []);
-    }
+    clearEditorDecorations(editor);
   }
 }
 
@@ -166,8 +213,6 @@ function createResolver(rawScss, rawCss, errors) {
 
 
 function applyDecorations(editor, tokenMap) {
-  clearEditorDecorations(editor);
-
   const text = editor.document.getText();
   const grouped = new Map();
   const claimedRanges = new Map();
@@ -184,15 +229,30 @@ function applyDecorations(editor, tokenMap) {
 
   addLiteralDecorations(editor, text, grouped, claimedRanges);
 
+  const previousColors = editorDecorationState.get(editor) || new Set();
+  const nextColors = new Set(grouped.keys());
+
   for (const [color, decorations] of grouped.entries()) {
     editor.setDecorations(getDecorationType(color), decorations);
   }
+
+  for (const color of previousColors) {
+    if (!nextColors.has(color)) {
+      const type = decorationCache.get(color);
+      if (type) editor.setDecorations(type, []);
+    }
+  }
+
+  editorDecorationState.set(editor, nextColors);
 }
 
 function clearEditorDecorations(editor) {
-  for (const type of decorationCache.values()) {
-    editor.setDecorations(type, []);
+  const previousColors = editorDecorationState.get(editor) || new Set();
+  for (const color of previousColors) {
+    const type = decorationCache.get(color);
+    if (type) editor.setDecorations(type, []);
   }
+  editorDecorationState.delete(editor);
 }
 
 function addGroupedDecorationsFromRegex(editor, text, regex, colorGetter, grouped, claimedRanges, priority = 0) {
