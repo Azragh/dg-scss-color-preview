@@ -1,20 +1,57 @@
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/azragh/dg-scss-color-preview/main/img/thumbnail.png" width="96" alt="DG SCSS Color Preview logo">
+
 # DG SCSS Color Preview
 
-VS Code inline color previews for SCSS variables, CSS custom properties, and derived color tokens.
+**Inline color previews for SCSS variables, CSS custom properties and derived color tokens.**
 
-> **Personal project, provided as-is.** Feel free to use, clone or fork it. Issues and pull requests are welcome, but there is no guaranteed support and they may not be looked at regularly.
+</div>
 
-DG SCSS Color Preview is built for projects where colors are not only defined as direct literals, but also through SCSS variables, chained token systems, interpolation, and selected helper-based color patterns.
+> 💡 **Personal project, provided as-is.** Feel free to use, clone or fork it. Issues and pull requests are welcome, but there is no guaranteed support and they may not be looked at regularly.
 
-Instead of only previewing plain values such as `#2196f3` or `rgb(...)`, the extension follows references and resolves resulting colors where supported. This makes it especially useful in codebases with semantic color tokens, exported CSS variables, and derived palette systems.
+![DG SCSS Color Preview example](https://raw.githubusercontent.com/azragh/dg-scss-color-preview/main/img/screenshot.png)
 
-## Why this extension is useful
+## ✨ Why this extension?
 
-Many color preview extensions work well for direct color values, but become far less useful once colors are defined indirectly through variables, helper functions, or exported token layers.
+Most color preview extensions work well for direct values like `#2196f3` or `rgb(...)`, but become far less useful once colors are defined **indirectly**, through variables, helper functions or exported token layers.
 
-DG SCSS Color Preview focuses on that practical use case. It is designed to make variable-driven color systems easier to read at a glance by previewing resolved colors directly in the editor.
+DG SCSS Color Preview follows those references and resolves the resulting color, so variable-driven color systems become readable at a glance:
 
-This includes support for custom SCSS helper patterns such as:
+```scss
+$cbase1:            #2196f3;                       // → blue
+$primary-700:       shade($cbase1, 40%);           // → resolved dark blue
+$header_background: $primary-700;                  // → follows the chain
+--header-bg:        #{$header_background};         // → CSS custom property too
+```
+
+**Best suited for** SCSS design tokens · CSS custom properties · semantic color systems · derived palette scales
+
+## 🎨 Features
+
+### Previews
+
+- Underline-based previews, **no extra spacing** added to the editor layout
+- Duplicate decorations are avoided where a resolved token and a nested literal would overlap
+
+### Resolving
+
+- Chained SCSS variable references and derived token values
+- CSS custom properties such as `--primary-500`, including `var(--token)` references
+- Interpolation such as `#{$primary-500}`
+- Commented-out declarations are used as a **fallback**, so preview-only demo blocks can stay commented out
+
+### Supported color functions
+
+| Type | Supported |
+| --- | --- |
+| Mixing & helpers | `color.mix(...)`, `mix(...)`, custom `tint(...)`, `shade(...)`, `alpha(...)` |
+| Alpha patterns | `rgba($token, 0.25)` |
+| Color schemes | `light-dark(...)`, see [below](#-light-dark) |
+| Literals | hex, `rgb(...)`, `rgba(...)`, `hsl(...)`, `hsla(...)`, `oklab(...)`, `oklch(...)` |
+| Named colors | `white`, `black`, `red`, `orange`, `green`, `dodgerblue`, … |
+
+The custom helpers are expected to look like this:
 
 ```scss
 @function alpha($color, $alpha) {
@@ -30,68 +67,43 @@ This includes support for custom SCSS helper patterns such as:
 }
 ```
 
-## Example
+### 🌗 light-dark()
 
-![DG SCSS Color Preview example](https://raw.githubusercontent.com/azragh/dg-scss-color-preview/main/img/screenshot.png)
+Colors defined with `light-dark(...)`, and everything derived from them, show **both** values: the first characters of the underline show the light value, the rest the dark value. Hover a variable to see both colors.
 
-The screenshot above shows how the extension previews resolved colors directly in variable-based SCSS and CSS workflows.
+### ⚡ Lightweight indexing
 
-## Features
+- Files are read directly instead of being opened as editor documents
+- WordPress core / plugins, `node_modules`, `vendor` and build folders are skipped
+- Variables from files closest to the current document take precedence
 
-- Inline underline-based color previews without adding extra spacing to the editor layout
-- Resolves chained SCSS variable references and derived token values
-- Resolves CSS custom properties such as `--primary-500` and related token exports
-- Supports interpolation such as `#{$primary-500}`
-- Supports selected derived color patterns, including:
-  - `color.mix(...)`
-  - `mix(...)`
-  - custom `tint(...)`
-  - custom `shade(...)`
-  - custom `alpha(...)`
-- Supports `var(--token)` references
-- Supports `light-dark(...)`: the underline shows the light value on the first characters (default 5, setting `scssColorPreview.lightDarkLeadChars`) and the dark value on the rest, including everything derived from it (setting `scssColorPreview.lightDark`: `both`, `light` or `dark`)
-- Supports direct color literals such as:
-  - hex values
-  - `rgb(...)`
-  - `rgba(...)`
-  - `hsl(...)`
-  - `hsla(...)`
-  - `oklab(...)`
-  - `oklch(...)`
-- Supports variable-based alpha patterns such as `rgba($token, 0.25)`
-- Supports standard CSS color names such as `white`, `black`, `red`, `orange`, `green`, or `dodgerblue`
-- Avoids duplicate decorations where a resolved token and a nested literal would otherwise overlap
-- Commented-out declarations are used as a fallback, so preview-only demo blocks can stay commented out
-- Optional setting `scssColorPreview.contrastOutline`: colors that blend into the editor background (e.g. near-black on a dark theme) get a subtle outline
-- Lightweight indexing: files are read directly instead of being opened as editor documents, WordPress core / plugins, `node_modules`, `vendor` and build folders are skipped, and variables from files closest to the current document take precedence
-- Setting `scssColorPreview.exclude` for additional glob patterns to skip
+## ⚙️ Settings
 
-## Planned Features
+| Setting | Default | Description |
+| --- | --- | --- |
+| `scssColorPreview.enabled` | `true` | Enable or disable all previews |
+| `scssColorPreview.lightDark` | `both` | How `light-dark()` is previewed: `both`, `light` or `dark` |
+| `scssColorPreview.lightDarkLeadChars` | `5` | Number of characters that show the light value |
+| `scssColorPreview.contrastOutline` | `false` | Subtle outline for colors that blend into the editor background (e.g. near-black on a dark theme) |
+| `scssColorPreview.exclude` | `[]` | Additional glob patterns to skip when indexing |
+| `scssColorPreview.maxFiles` | `300` | Maximum number of style files to index |
 
-- Support for color patterns:
-  - `color.scale(...)`
-  - `color.adjust(...)`
-  - `color.change(...)`
+**Command:** `SCSS Color Preview: Refresh`
 
-## Best suited for
+## 📦 Installation
 
-- SCSS design tokens
-- CSS custom properties
-- semantic color systems
-- derived palette scales
+The repository includes a packaged `.vsix` file. Install it via **Extensions → `···` → Install from VSIX...**
 
-## Installation
+To inspect, modify or test the extension locally, open the project folder in VS Code and press `F5` to launch an Extension Development Host.
 
-The repository already includes a packaged `.vsix` file. You can install it via **Extensions → ... → Install from VSIX...**.
+## 🗺️ Planned features
 
-If you want to inspect, modify, or test the extension locally, open the project folder in VS Code and press `F5` to launch it in an Extension Development Host.
+- `color.scale(...)`
+- `color.adjust(...)`
+- `color.change(...)`
 
-## Command
+## 📝 Notes
 
-- `SCSS Color Preview: Refresh`
+DG SCSS Color Preview is intentionally focused on practical SCSS and CSS color workflows. It is **not a full Sass compiler** and does not attempt to evaluate every possible Sass function or arbitrary nested expression.
 
-## Notes
-
-DG SCSS Color Preview is intentionally focused on practical SCSS and CSS color workflows. It is not a full Sass compiler and does not attempt to evaluate every possible Sass function or arbitrary nested expression.
-
-The extension is designed to handle direct color literals, variable references, CSS custom properties, interpolation, and selected helper-based token patterns commonly used in real-world projects.
+It is designed to handle direct color literals, variable references, CSS custom properties, interpolation and selected helper-based token patterns commonly used in real-world projects.
