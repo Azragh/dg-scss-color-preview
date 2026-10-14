@@ -117,6 +117,11 @@ function isContrastOutlineEnabled() {
   return vscode.workspace.getConfiguration('scssColorPreview').get('contrastOutline', false);
 }
 
+function getLightDarkMode() {
+  const mode = vscode.workspace.getConfiguration('scssColorPreview').get('lightDark', 'both');
+  return ['light', 'dark'].includes(mode) ? mode : 'both';
+}
+
 function redrawDecorations() {
   clearDecorations();
   disposeDecorationCache();
@@ -361,7 +366,17 @@ function getTokenMap(document) {
   }
 
   const { rawScss, rawCss } = buildRawMaps(key, pathSegments(document.uri));
-  const resolver = createResolver(rawScss, rawCss);
+  // Resolve everything once per color scheme so light-dark() values (and
+  // everything derived from them) can be previewed in both variants.
+  const lightDarkMode = getLightDarkMode();
+  const lightResolver = lightDarkMode === 'dark' ? null : createResolver(rawScss, rawCss, 'light');
+  const darkResolver = lightDarkMode === 'light' ? null : createResolver(rawScss, rawCss, 'dark');
+  const resolveToken = (resolver, token) => {
+    if (!resolver) return null;
+    const color = token[0] === '$' ? resolver.resolveScss(token.slice(1)) : resolver.resolveCss(token.slice(2));
+    return color ? colorToCss(color) : null;
+  };
+
   const tokenMap = new Map();
   const text = document.getText();
   let m;
@@ -369,15 +384,19 @@ function getTokenMap(document) {
   while ((m = TOKEN_REGEX.exec(text)) !== null) {
     const token = m[0];
     if (tokenMap.has(token)) continue;
-    const color = token[0] === '$' ? resolver.resolveScss(token.slice(1)) : resolver.resolveCss(token.slice(2));
-    tokenMap.set(token, color ? colorToCss(color) : null);
+    const light = resolveToken(lightResolver, token);
+    const dark = resolveToken(darkResolver, token);
+    if (light && dark && light !== dark) tokenMap.set(token, { light, dark });
+    else tokenMap.set(token, light || dark);
   }
 
   resolvedCache.set(key, { generation, tokenMap });
   return tokenMap;
 }
 
-function createResolver(rawScss, rawCss) {
+// `scheme` ('light' | 'dark') decides which branch of light-dark() is used.
+function createResolver(rawScss, rawCss, scheme = 'light') {
+  const ctx = { resolveScss, resolveCss, scheme };
   const scssMemo = new Map();
   const cssMemo = new Map();
   const scssStack = new Set();
@@ -388,7 +407,7 @@ function createResolver(rawScss, rawCss) {
     if (scssStack.has(name)) return null;
     scssStack.add(name);
     const expr = rawScss.get(name);
-    const result = expr ? evaluateExpression(expr, { resolveScss, resolveCss }) : null;
+    const result = expr ? evaluateExpression(expr, ctx) : null;
     scssMemo.set(name, result);
     scssStack.delete(name);
     return result;
@@ -399,7 +418,7 @@ function createResolver(rawScss, rawCss) {
     if (cssStack.has(name)) return null;
     cssStack.add(name);
     const expr = rawCss.get(name);
-    const result = expr ? evaluateExpression(expr, { resolveScss, resolveCss }) : null;
+    const result = expr ? evaluateExpression(expr, ctx) : null;
     cssMemo.set(name, result);
     cssStack.delete(name);
     return result;
@@ -509,6 +528,15 @@ function addGroupedDecorationsFromRegex(editor, text, regex, colorGetter, groupe
     const token = match[0];
     const color = colorGetter(token);
     if (!color) continue;
+
+    if (typeof color === 'object') {
+      // light-dark(): left half shows the light value, right half the dark one.
+      const hover = `${token} → light: ${color.light} | dark: ${color.dark}`;
+      const half = Math.ceil(token.length / 2);
+      addDecoration(editor, grouped, claimedRanges, match.index, half, color.light, hover, priority);
+      addDecoration(editor, grouped, claimedRanges, match.index + half, token.length - half, color.dark, hover, priority);
+      continue;
+    }
 
     addDecoration(editor, grouped, claimedRanges, match.index, token.length, color, `${token} → ${color}`, priority);
   }
@@ -707,6 +735,12 @@ function evaluateExpression(expr, ctx) {
       const alpha = parseNumber(args[1]);
       if (color && alpha !== null) return { ...color, a: clamp(alpha, 0, 1) };
     }
+  }
+
+  const lightDarkMatch = expr.match(/^light-dark\((.*)\)$/i);
+  if (lightDarkMatch) {
+    const args = splitArgs(lightDarkMatch[1]);
+    if (args.length === 2) return evaluateExpression(args[ctx.scheme === 'dark' ? 1 : 0], ctx);
   }
 
   const oklab = parseOklabFunc(expr);
