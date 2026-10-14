@@ -19,10 +19,10 @@ Most color preview extensions work well for direct values like `#2196f3` or `rgb
 DG SCSS Color Preview follows those references and resolves the resulting color, so variable-driven color systems become readable at a glance:
 
 ```scss
-$cbase1:            #2196f3;                       // → blue
-$primary-700:       shade($cbase1, 40%);           // → resolved dark blue
-$header_background: $primary-700;                  // → follows the chain
---header-bg:        #{$header_background};         // → CSS custom property too
+$cbase1:      #2196f3;             // blue
+$primary-700: shade($cbase1, 40%); // resolved dark blue
+$header_bg:   $primary-700;        // follows the chain
+--header-bg:  #{$header_bg};       // CSS variables too
 ```
 
 **Best suited for** SCSS design tokens · CSS custom properties · semantic color systems · derived palette scales
