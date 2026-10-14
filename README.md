@@ -2,6 +2,8 @@
 
 VS Code inline color previews for SCSS variables, CSS custom properties, and derived color tokens.
 
+> **Personal project, provided as-is.** Feel free to use, clone or fork it. Issues and pull requests are welcome, but there is no guaranteed support and they may not be looked at regularly.
+
 DG SCSS Color Preview is built for projects where colors are not only defined as direct literals, but also through SCSS variables, chained token systems, interpolation, and selected helper-based color patterns.
 
 Instead of only previewing plain values such as `#2196f3` or `rgb(...)`, the extension follows references and resolves resulting colors where supported. This makes it especially useful in codebases with semantic color tokens, exported CSS variables, and derived palette systems.
