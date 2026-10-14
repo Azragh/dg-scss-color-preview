@@ -8,11 +8,11 @@
 
 </div>
 
-> 💡 **Personal project, provided as-is.** Feel free to use, clone or fork it. Issues and pull requests are welcome, but there is no guaranteed support and they may not be looked at regularly.
+> **Personal project, provided as-is.** Feel free to use, clone or fork it. Issues and pull requests are welcome, but there is no guaranteed support and they may not be looked at regularly.
 
 ![DG SCSS Color Preview example](https://raw.githubusercontent.com/azragh/dg-scss-color-preview/main/img/screenshot.png)
 
-## ✨ Why this extension?
+## Why this extension?
 
 Most color preview extensions work well for direct values like `#2196f3` or `rgb(...)`, but become far less useful once colors are defined **indirectly**, through variables, helper functions or exported token layers.
 
@@ -27,7 +27,7 @@ $header_bg:   $primary-700;        // follows the chain
 
 **Best suited for** SCSS design tokens · CSS custom properties · semantic color systems · derived palette scales
 
-## 🎨 Features
+## Features
 
 ### Previews
 
@@ -47,7 +47,7 @@ $header_bg:   $primary-700;        // follows the chain
 | --- | --- |
 | Mixing & helpers | `color.mix(...)`, `mix(...)`, custom `tint(...)`, `shade(...)`, `alpha(...)` |
 | Alpha patterns | `rgba($token, 0.25)` |
-| Color schemes | `light-dark(...)`, see [below](#-light-dark) |
+| Color schemes | `light-dark(...)`, see [below](#light-dark) |
 | Literals | hex, `rgb(...)`, `rgba(...)`, `hsl(...)`, `hsla(...)`, `oklab(...)`, `oklch(...)` |
 | Named colors | `white`, `black`, `red`, `orange`, `green`, `dodgerblue`, … |
 
@@ -67,17 +67,17 @@ The custom helpers are expected to look like this:
 }
 ```
 
-### 🌗 light-dark()
+### light-dark()
 
 Colors defined with `light-dark(...)`, and everything derived from them, show **both** values: the first characters of the underline show the light value, the rest the dark value. Hover a variable to see both colors.
 
-### ⚡ Lightweight indexing
+### Lightweight indexing
 
 - Files are read directly instead of being opened as editor documents
 - WordPress core / plugins, `node_modules`, `vendor` and build folders are skipped
 - Variables from files closest to the current document take precedence
 
-## ⚙️ Settings
+## Settings
 
 | Setting | Default | Description |
 | --- | --- | --- |
@@ -90,19 +90,19 @@ Colors defined with `light-dark(...)`, and everything derived from them, show **
 
 **Command:** `SCSS Color Preview: Refresh`
 
-## 📦 Installation
+## Installation
 
 The repository includes a packaged `.vsix` file. Install it via **Extensions → `···` → Install from VSIX...**
 
 To inspect, modify or test the extension locally, open the project folder in VS Code and press `F5` to launch an Extension Development Host.
 
-## 🗺️ Planned features
+## Planned features
 
 - `color.scale(...)`
 - `color.adjust(...)`
 - `color.change(...)`
 
-## 📝 Notes
+## Notes
 
 DG SCSS Color Preview is intentionally focused on practical SCSS and CSS color workflows. It is **not a full Sass compiler** and does not attempt to evaluate every possible Sass function or arbitrary nested expression.
 
