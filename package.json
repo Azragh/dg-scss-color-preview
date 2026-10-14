@@ -2,7 +2,7 @@
   "name": "dg-scss-color-preview",
   "displayName": "DG SCSS Color Preview",
   "description": "Inline color previews for SCSS variables, CSS custom properties, and selected derived color patterns.",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "publisher": "Azragh",
   "license": "MIT",
   "repository": {
@@ -74,12 +74,18 @@
             "dark"
           ],
           "enumDescriptions": [
-            "Split the underline: the first three characters show the light value, the rest the dark value.",
+            "Split the underline: the first characters show the light value (see Light Dark Lead Chars), the rest the dark value.",
             "Only preview the light value of light-dark().",
             "Only preview the dark value of light-dark()."
           ],
           "default": "both",
           "description": "How colors defined with light-dark() are previewed."
+        },
+        "scssColorPreview.lightDarkLeadChars": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "Number of characters at the start of a light-dark() variable that show the light value. Very short names are split in the middle."
         }
       }
     }

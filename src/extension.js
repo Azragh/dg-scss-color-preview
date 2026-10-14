@@ -22,7 +22,6 @@ const DEFAULT_EXCLUDES = [
 ];
 const EXCLUDED_PATH_REGEX = /[\\/](node_modules|\.git|dist|build|\.next|\.nuxt|vendor|wp-admin|wp-includes)[\\/]|[\\/]wp-content[\\/](plugins|mu-plugins|uploads|cache|upgrade)[\\/]|\.min\.css$/i;
 const MAX_FILE_BYTES = 512 * 1024;
-const LIGHT_DARK_LEAD_CHARS = 3;
 const TOKEN_REGEX =/(\$[a-zA-Z0-9_-]+|--[a-zA-Z0-9_-]+)/g;
 
 let output;
@@ -82,11 +81,11 @@ function activate(context) {
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration('scssColorPreview')) return;
-      // Pure styling setting: recreate the decoration types, no rescan needed.
-      const styleOnly = e.affectsConfiguration('scssColorPreview.contrastOutline')
-        && !['enabled', 'maxFiles', 'exclude'].some((key) => e.affectsConfiguration(`scssColorPreview.${key}`));
-      if (styleOnly) redrawDecorations();
-      else rescanWorkspace('configuration');
+      const affects = (key) => e.affectsConfiguration(`scssColorPreview.${key}`);
+      // Only indexing settings need a rescan; the rest just re-resolve / redraw.
+      if (['enabled', 'maxFiles', 'exclude'].some(affects)) return rescanWorkspace('configuration');
+      if (affects('lightDark')) generation++;
+      redrawDecorations();
     }),
     watcher,
     watcher.onDidChange((uri) => queueFsChange(uri, 'change')),
@@ -121,6 +120,11 @@ function isContrastOutlineEnabled() {
 function getLightDarkMode() {
   const mode = vscode.workspace.getConfiguration('scssColorPreview').get('lightDark', 'both');
   return ['light', 'dark'].includes(mode) ? mode : 'both';
+}
+
+function getLightDarkLeadChars() {
+  const n = Math.round(Number(vscode.workspace.getConfiguration('scssColorPreview').get('lightDarkLeadChars', 5)));
+  return Number.isFinite(n) && n >= 1 ? n : 5;
 }
 
 function redrawDecorations() {
@@ -534,7 +538,7 @@ function addGroupedDecorationsFromRegex(editor, text, regex, colorGetter, groupe
       // light-dark(): a fixed-width lead shows the light value, the rest the
       // dark one. A constant split point keeps aligned columns tidy.
       const hover = `${token} → light: ${color.light} | dark: ${color.dark}`;
-      const half = Math.min(LIGHT_DARK_LEAD_CHARS, Math.ceil(token.length / 2));
+      const half = Math.min(getLightDarkLeadChars(), Math.ceil(token.length / 2));
       addDecoration(editor, grouped, claimedRanges, match.index, half, color.light, hover, priority);
       addDecoration(editor, grouped, claimedRanges, match.index + half, token.length - half, color.dark, hover, priority);
       continue;
