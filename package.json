@@ -2,7 +2,7 @@
   "name": "dg-scss-color-preview",
   "displayName": "DG SCSS Color Preview",
   "description": "Inline color previews for SCSS variables, CSS custom properties, and selected derived color patterns.",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "publisher": "Azragh",
   "license": "MIT",
   "repository": {
