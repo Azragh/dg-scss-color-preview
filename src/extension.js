@@ -32,7 +32,12 @@ let scanPromise = null;
 let decorationCache = new Map();
 let editorDecorationState = new WeakMap();
 
-// key (uri string) -> { segments, scss: Map<name, {value, isDefault}>, css: Map<name, value>, fromScan }
+// Declaration ranks: commented-out < !default < regular.
+const RANK_COMMENTED = 0;
+const RANK_DEFAULT = 1;
+const RANK_REGULAR = 2;
+
+// key (uri string) -> { segments, scss: Map<name, {value, rank}>, css: Map<name, {value, rank}>, fromScan }
 const fileEntries = new Map();
 // key (uri string) -> { generation, tokenMap }
 let resolvedCache = new Map();
@@ -71,6 +76,11 @@ function activate(context) {
       scheduleLightRefresh();
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => rescanWorkspace('workspace-folders')),
+    vscode.window.onDidChangeActiveColorTheme(() => {
+      clearDecorations();
+      disposeDecorationCache();
+      applyToVisibleEditors();
+    }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('scssColorPreview')) rescanWorkspace('configuration');
     }),
@@ -240,23 +250,48 @@ async function flushFsChanges() {
 }
 
 function parseAssignments(text) {
-  const clean = stripComments(text);
   const scss = new Map();
   const css = new Map();
-  const scssRegex = /\$([a-zA-Z0-9_-]+)\s*:\s*([^;]+);/g;
-  const cssRegex = /--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);/g;
-  let m;
 
-  while ((m = scssRegex.exec(clean)) !== null) {
-    const raw = m[2].trim();
-    const isDefault = /!default\b/i.test(raw);
-    // `!default` only applies when the variable is not yet set.
-    if (isDefault && scss.has(m[1])) continue;
-    scss.set(m[1], { value: stripFlags(raw), isDefault });
-  }
-  while ((m = cssRegex.exec(clean)) !== null) css.set(m[1], stripFlags(m[2].trim()));
+  // Commented-out declarations (e.g. a preview-only demo block) are kept as a
+  // fallback: they are only used when no real declaration exists anywhere.
+  collectDeclarations(extractComments(text), scss, css, true);
+  collectDeclarations(stripComments(text), scss, css, false);
 
   return { scss, css };
+}
+
+function collectDeclarations(text, scss, css, commented) {
+  // Comment lines are joined with newlines, so declarations must not span them.
+  const valuePattern = commented ? '([^;\\n]+)' : '([^;]+)';
+  const scssRegex = new RegExp(`\\$([a-zA-Z0-9_-]+)\\s*:\\s*${valuePattern};`, 'g');
+  const cssRegex = new RegExp(`--([a-zA-Z0-9_-]+)\\s*:\\s*${valuePattern};`, 'g');
+  let m;
+
+  while ((m = scssRegex.exec(text)) !== null) {
+    const raw = m[2].trim();
+    const rank = commented ? RANK_COMMENTED : /!default\b/i.test(raw) ? RANK_DEFAULT : RANK_REGULAR;
+    const existing = scss.get(m[1]);
+    // `!default` only applies when the variable is not yet set.
+    if (existing && (existing.rank > rank || (rank === RANK_DEFAULT && existing.rank === RANK_DEFAULT))) continue;
+    scss.set(m[1], { value: stripFlags(raw), rank });
+  }
+  while ((m = cssRegex.exec(text)) !== null) {
+    const rank = commented ? RANK_COMMENTED : RANK_REGULAR;
+    const existing = css.get(m[1]);
+    if (existing && existing.rank > rank) continue;
+    css.set(m[1], { value: stripFlags(m[2].trim()), rank });
+  }
+}
+
+function extractComments(text) {
+  const parts = [];
+  let m;
+  const blockRegex = /\/\*([\s\S]*?)\*\//g;
+  while ((m = blockRegex.exec(text)) !== null) parts.push(m[1]);
+  const lineRegex = /(?:^|[^:])\/\/(.*)$/gm;
+  while ((m = lineRegex.exec(text)) !== null) parts.push(m[1]);
+  return parts.join('\n');
 }
 
 function stripFlags(value) {
@@ -272,7 +307,8 @@ function stripComments(text) {
 // Merge all indexed files into one variable table for a given document.
 // Files closer to the document in the folder tree win over distant ones
 // (e.g. the theme's own `$primary` beats one from another project), and
-// `!default` declarations lose against regular ones.
+// `!default` declarations lose against regular ones, commented-out ones
+// against everything.
 function buildRawMaps(docKey, docSegments) {
   const ordered = [];
   for (const [key, entry] of fileEntries) {
@@ -288,15 +324,15 @@ function buildRawMaps(docKey, docSegments) {
 
   const rawScss = new Map();
   const rawCss = new Map();
-  for (const isDefaultPass of [true, false]) {
+  for (const rank of [RANK_COMMENTED, RANK_DEFAULT, RANK_REGULAR]) {
     for (const { entry } of ordered) {
       for (const [name, decl] of entry.scss) {
-        if (decl.isDefault === isDefaultPass) rawScss.set(name, decl.value);
+        if (decl.rank === rank) rawScss.set(name, decl.value);
+      }
+      for (const [name, decl] of entry.css) {
+        if (decl.rank === rank) rawCss.set(name, decl.value);
       }
     }
-  }
-  for (const { entry } of ordered) {
-    for (const [name, value] of entry.css) rawCss.set(name, value);
   }
   return { rawScss, rawCss };
 }
@@ -556,6 +592,10 @@ function getDecorationType(color) {
   if (decorationCache.has(color)) return decorationCache.get(color);
 
   const type = vscode.window.createTextEditorDecorationType({
+    // Swatches that blend into the editor background get a faint outline.
+    outline: needsContrastOutline(color)
+      ? `1px solid ${isDarkTheme() ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)'}`
+      : undefined,
     backgroundColor: toSoftBackground(color),
     borderRadius: '2px',
     borderWidth: '0 0 2px 0',
@@ -568,6 +608,25 @@ function getDecorationType(color) {
 
   decorationCache.set(color, type);
   return type;
+}
+
+function isDarkTheme() {
+  const kind = vscode.window.activeColorTheme.kind;
+  return kind === vscode.ColorThemeKind.Dark || kind === vscode.ColorThemeKind.HighContrast;
+}
+
+// Very dark colors on a dark theme (or very light ones on a light theme)
+// are practically invisible as underline + tinted background.
+function needsContrastOutline(color) {
+  const m = String(color).match(/^rgb\((\d+)\s+(\d+)\s+(\d+)(?:\s*\/\s*([\d.]+))?\)$/i);
+  if (!m) return false;
+  if (m[4] != null && Number(m[4]) < 0.35) return true;
+  const [r, g, b] = [m[1], m[2], m[3]].map((v) => {
+    const c = Number(v) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return isDarkTheme() ? luminance < 0.04 : luminance > 0.8;
 }
 
 function toSoftBackground(color) {
