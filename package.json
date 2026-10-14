@@ -2,7 +2,7 @@
   "name": "dg-scss-color-preview",
   "displayName": "DG SCSS Color Preview",
   "description": "Inline color previews for SCSS variables, CSS custom properties, and selected derived color patterns.",
-  "version": "0.1.7",
+  "version": "0.1.9",
   "publisher": "Azragh",
   "license": "MIT",
   "repository": {
@@ -51,7 +51,15 @@
         "scssColorPreview.maxFiles": {
           "type": "number",
           "default": 300,
-          "description": "Maximum number of CSS/SCSS files to scan in the workspace."
+          "description": "Maximum number of CSS/SCSS files to index in the workspace (SCSS/Sass files are indexed first). WordPress core, plugins, node_modules, vendor and build folders are always skipped."
+        },
+        "scssColorPreview.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional glob patterns to skip when indexing, e.g. **/legacy/**."
         }
       }
     }

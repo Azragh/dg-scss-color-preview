@@ -1,46 +1,88 @@
 const vscode = require('vscode');
 const path = require('path');
 
+// Folders that never contain project color tokens but can hold thousands of
+// style files (WordPress core, plugins, build output, dependencies).
+const DEFAULT_EXCLUDES = [
+  '**/node_modules/**',
+  '**/.git/**',
+  '**/dist/**',
+  '**/build/**',
+  '**/.next/**',
+  '**/.nuxt/**',
+  '**/vendor/**',
+  '**/wp-admin/**',
+  '**/wp-includes/**',
+  '**/wp-content/plugins/**',
+  '**/wp-content/mu-plugins/**',
+  '**/wp-content/uploads/**',
+  '**/wp-content/cache/**',
+  '**/wp-content/upgrade/**',
+  '**/*.min.css'
+];
+const EXCLUDED_PATH_REGEX = /[\\/](node_modules|\.git|dist|build|\.next|\.nuxt|vendor|wp-admin|wp-includes)[\\/]|[\\/]wp-content[\\/](plugins|mu-plugins|uploads|cache|upgrade)[\\/]|\.min\.css$/i;
+const MAX_FILE_BYTES = 512 * 1024;
+const TOKEN_REGEX = /(\$[a-zA-Z0-9_-]+|--[a-zA-Z0-9_-]+)/g;
+
 let output;
-let heavyRefreshTimer = null;
+let docChangeTimer = null;
+let fsChangeTimer = null;
 let lightRefreshTimer = null;
+let scanPromise = null;
 let decorationCache = new Map();
 let editorDecorationState = new WeakMap();
-let latestWorkspaceState = {
-  tokenMap: new Map(),
-  parsedFiles: 0,
-  errors: []
-};
+
+// key (uri string) -> { segments, scss: Map<name, {value, isDefault}>, css: Map<name, value>, fromScan }
+const fileEntries = new Map();
+// key (uri string) -> { generation, tokenMap }
+let resolvedCache = new Map();
+let generation = 0;
+const pendingDocs = new Map();
+const pendingFsChanges = new Map();
 
 function activate(context) {
   output = vscode.window.createOutputChannel('SCSS Color Preview');
 
-  const refresh = () => scheduleHeavyRefresh('manual');
+  const watcher = vscode.workspace.createFileSystemWatcher('**/*.{scss,sass,css}');
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('scssColorPreview.refresh', refresh),
+    vscode.commands.registerCommand('scssColorPreview.refresh', () => rescanWorkspace('manual')),
     vscode.workspace.onDidChangeTextDocument((e) => {
-      if (!isSupportedDocument(e.document)) return;
-      scheduleHeavyRefresh(`change:${path.basename(e.document.fileName)}`);
+      if (!isSupportedDocument(e.document) || !e.contentChanges.length) return;
+      pendingDocs.set(e.document.uri.toString(), e.document);
+      if (docChangeTimer) clearTimeout(docChangeTimer);
+      docChangeTimer = setTimeout(flushDocChanges, 300);
     }),
-    vscode.workspace.onDidOpenTextDocument((doc) => {
+    vscode.workspace.onDidCloseTextDocument((doc) => {
       if (!isSupportedDocument(doc)) return;
-      scheduleHeavyRefresh(`open:${path.basename(doc.fileName)}`);
+      const key = doc.uri.toString();
+      const entry = fileEntries.get(key);
+      if (!entry) return;
+      // Unsaved edits are discarded on close, so fall back to the file on disk.
+      if (entry.fromScan) queueFsChange(doc.uri, 'change');
+      else fileEntries.delete(key);
     }),
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       if (!editor || !isSupportedDocument(editor.document)) return;
-      scheduleLightRefresh('active-editor');
+      scheduleLightRefresh();
     }),
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
       if (!editors.some((editor) => isSupportedDocument(editor.document))) return;
-      scheduleLightRefresh('visible-editors');
+      scheduleLightRefresh();
     }),
-    vscode.workspace.onDidChangeWorkspaceFolders(() => scheduleHeavyRefresh('workspace-folders')),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => rescanWorkspace('workspace-folders')),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('scssColorPreview')) rescanWorkspace('configuration');
+    }),
+    watcher,
+    watcher.onDidChange((uri) => queueFsChange(uri, 'change')),
+    watcher.onDidCreate((uri) => queueFsChange(uri, 'change')),
+    watcher.onDidDelete((uri) => queueFsChange(uri, 'delete')),
     { dispose: disposeDecorationCache },
     output
   );
 
-  scheduleHeavyRefresh('activate');
+  rescanWorkspace('activate');
 }
 
 function deactivate() {
@@ -54,6 +96,10 @@ function disposeDecorationCache() {
   decorationCache.clear();
 }
 
+function isEnabled() {
+  return vscode.workspace.getConfiguration('scssColorPreview').get('enabled', true);
+}
+
 function isSupportedDocument(document) {
   return !!document && ['scss', 'sass', 'css'].includes(document.languageId);
 }
@@ -62,116 +108,159 @@ function getVisibleStyleEditors() {
   return vscode.window.visibleTextEditors.filter((editor) => isSupportedDocument(editor.document));
 }
 
-function scheduleHeavyRefresh(reason) {
-  if (!vscode.workspace.getConfiguration('scssColorPreview').get('enabled', true)) {
+function logError(err) {
+  output.appendLine(`[error] ${String(err && err.stack ? err.stack : err)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Workspace index
+// ---------------------------------------------------------------------------
+
+function rescanWorkspace(reason) {
+  if (!isEnabled()) {
+    fileEntries.clear();
+    resolvedCache.clear();
     clearDecorations();
     return;
   }
 
-  if (heavyRefreshTimer) clearTimeout(heavyRefreshTimer);
-
-  heavyRefreshTimer = setTimeout(async () => {
-    try {
-      await fullRefresh(reason, { rebuildState: true });
-    } catch (err) {
-      output.appendLine(`[error] ${String(err && err.stack ? err.stack : err)}`);
-    }
-  }, 450);
+  // applyToVisibleEditors() awaits scanPromise, so it must not be part of it.
+  scanPromise = scanWorkspace(reason).catch(logError);
+  scanPromise.then(() => applyToVisibleEditors());
 }
 
-function scheduleLightRefresh(reason) {
-  if (!vscode.workspace.getConfiguration('scssColorPreview').get('enabled', true)) {
-    clearDecorations();
-    return;
-  }
+async function scanWorkspace(reason) {
+  const started = Date.now();
+  const config = vscode.workspace.getConfiguration('scssColorPreview');
+  const maxFiles = Number(config.get('maxFiles', 300));
+  const extraExcludes = config.get('exclude', []);
+  const exclude = `{${[...DEFAULT_EXCLUDES, ...(Array.isArray(extraExcludes) ? extraExcludes : [])].join(',')}}`;
 
-  if (lightRefreshTimer) clearTimeout(lightRefreshTimer);
+  // Source files first so compiled CSS never pushes them out of the budget.
+  const sources = await vscode.workspace.findFiles('**/*.{scss,sass}', exclude, maxFiles);
+  const remaining = Math.max(0, maxFiles - sources.length);
+  const css = remaining ? await vscode.workspace.findFiles('**/*.css', exclude, remaining) : [];
+  const files = [...sources, ...css];
 
-  lightRefreshTimer = setTimeout(() => {
-    try {
-      applyLatestStateToVisibleEditors(reason);
-    } catch (err) {
-      output.appendLine(`[error] ${String(err && err.stack ? err.stack : err)}`);
-    }
-  }, 120);
-}
-
-async function fullRefresh(reason, options = {}) {
-  const { rebuildState = true } = options;
-  const editors = getVisibleStyleEditors();
-  if (!editors.length) return;
-
-  if (rebuildState) {
-    output.clear();
-    output.appendLine(`SCSS Color Preview refresh: ${reason}`);
-
-    latestWorkspaceState = await buildWorkspaceState();
-    output.appendLine(`Parsed files: ${latestWorkspaceState.parsedFiles}`);
-    output.appendLine(`Resolved tokens: ${latestWorkspaceState.tokenMap.size}`);
-    if (latestWorkspaceState.errors.length) {
-      output.appendLine('Errors:');
-      latestWorkspaceState.errors.forEach((e) => output.appendLine(`- ${e}`));
-    }
-  }
-
-  applyLatestStateToVisibleEditors(reason);
-}
-
-function applyLatestStateToVisibleEditors(reason = 'light') {
-  const editors = getVisibleStyleEditors();
-  if (!editors.length) return;
-
-  for (const editor of editors) {
-    applyDecorations(editor, latestWorkspaceState.tokenMap);
-  }
-}
-
-function clearDecorations() {
-  for (const editor of vscode.window.visibleTextEditors) {
-    clearEditorDecorations(editor);
-  }
-}
-
-async function buildWorkspaceState() {
-  const tokenMap = new Map();
-  const rawScss = new Map();
-  const rawCss = new Map();
   const errors = [];
-  const maxFiles = Number(vscode.workspace.getConfiguration('scssColorPreview').get('maxFiles', 300));
+  const next = new Map();
+  const batchSize = 16;
+  for (let i = 0; i < files.length; i += batchSize) {
+    await Promise.all(files.slice(i, i + batchSize).map(async (uri) => {
+      try {
+        const entry = await readFileEntry(uri);
+        if (entry) next.set(uri.toString(), entry);
+      } catch (err) {
+        errors.push(`${uri.fsPath}: ${String(err.message || err)}`);
+      }
+    }));
+  }
 
-  const files = await vscode.workspace.findFiles('**/*.{scss,sass,css}', '**/{node_modules,.git,dist,build,.next,.nuxt,vendor}/**', maxFiles);
-
-  for (const uri of files) {
-    try {
-      const doc = await vscode.workspace.openTextDocument(uri);
-      const text = stripComments(doc.getText());
-      collectAssignments(text, rawScss, rawCss);
-    } catch (err) {
-      errors.push(`${uri.fsPath}: ${String(err.message || err)}`);
+  // Open documents may contain unsaved edits; they win over the file on disk.
+  for (const doc of vscode.workspace.textDocuments) {
+    if (!isSupportedDocument(doc)) continue;
+    const key = doc.uri.toString();
+    if (doc.isDirty || !next.has(key)) {
+      next.set(key, createEntry(doc.uri, doc.getText(), next.has(key)));
     }
   }
 
-  const resolver = createResolver(rawScss, rawCss, errors);
+  fileEntries.clear();
+  for (const [key, entry] of next) fileEntries.set(key, entry);
+  generation++;
 
-  for (const key of rawScss.keys()) {
-    const color = resolver.resolveScss(key);
-    if (color) tokenMap.set(`$${key}`, colorToCss(color));
-  }
-
-  for (const key of rawCss.keys()) {
-    const color = resolver.resolveCss(key);
-    if (color) tokenMap.set(`--${key}`, colorToCss(color));
-  }
-
-  return { tokenMap, parsedFiles: files.length, errors };
+  output.appendLine(`[${new Date().toLocaleTimeString()}] scan (${reason}): ${files.length} files indexed in ${Date.now() - started} ms${files.length >= maxFiles ? ' — maxFiles limit reached' : ''}`);
+  errors.forEach((e) => output.appendLine(`- ${e}`));
 }
 
-function collectAssignments(text, rawScss, rawCss) {
+async function readFileEntry(uri) {
+  const bytes = await vscode.workspace.fs.readFile(uri);
+  if (bytes.byteLength > MAX_FILE_BYTES) return null;
+  return createEntry(uri, Buffer.from(bytes).toString('utf8'), true);
+}
+
+function createEntry(uri, text, fromScan) {
+  const { scss, css } = parseAssignments(text);
+  return { segments: pathSegments(uri), scss, css, fromScan };
+}
+
+function pathSegments(uri) {
+  return path.dirname(uri.fsPath || uri.path).toLowerCase().split(/[\\/]+/);
+}
+
+function flushDocChanges() {
+  docChangeTimer = null;
+  if (!isEnabled()) return;
+  for (const [key, doc] of pendingDocs) {
+    const existing = fileEntries.get(key);
+    fileEntries.set(key, createEntry(doc.uri, doc.getText(), existing ? existing.fromScan : false));
+  }
+  pendingDocs.clear();
+  generation++;
+  applyToVisibleEditors();
+}
+
+function queueFsChange(uri, kind) {
+  if (!isEnabled() || EXCLUDED_PATH_REGEX.test(uri.fsPath)) return;
+  pendingFsChanges.set(uri.toString(), { uri, kind });
+  if (fsChangeTimer) clearTimeout(fsChangeTimer);
+  fsChangeTimer = setTimeout(flushFsChanges, 500);
+}
+
+async function flushFsChanges() {
+  fsChangeTimer = null;
+  const changes = [...pendingFsChanges.values()];
+  pendingFsChanges.clear();
+  const maxFiles = Number(vscode.workspace.getConfiguration('scssColorPreview').get('maxFiles', 300));
+  let changed = false;
+
+  for (const { uri, kind } of changes) {
+    const key = uri.toString();
+    const openDoc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === key);
+    if (openDoc && openDoc.isDirty) continue; // live text is already indexed
+    try {
+      if (kind === 'delete') {
+        changed = fileEntries.delete(key) || changed;
+        continue;
+      }
+      if (!fileEntries.has(key) && fileEntries.size >= maxFiles) continue;
+      const entry = await readFileEntry(uri);
+      if (entry) fileEntries.set(key, entry);
+      else fileEntries.delete(key);
+      changed = true;
+    } catch {
+      changed = fileEntries.delete(key) || changed;
+    }
+  }
+
+  if (changed) {
+    generation++;
+    applyToVisibleEditors();
+  }
+}
+
+function parseAssignments(text) {
+  const clean = stripComments(text);
+  const scss = new Map();
+  const css = new Map();
   const scssRegex = /\$([a-zA-Z0-9_-]+)\s*:\s*([^;]+);/g;
   const cssRegex = /--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);/g;
   let m;
-  while ((m = scssRegex.exec(text)) !== null) rawScss.set(m[1], m[2].trim());
-  while ((m = cssRegex.exec(text)) !== null) rawCss.set(m[1], m[2].trim());
+
+  while ((m = scssRegex.exec(clean)) !== null) {
+    const raw = m[2].trim();
+    const isDefault = /!default\b/i.test(raw);
+    // `!default` only applies when the variable is not yet set.
+    if (isDefault && scss.has(m[1])) continue;
+    scss.set(m[1], { value: stripFlags(raw), isDefault });
+  }
+  while ((m = cssRegex.exec(clean)) !== null) css.set(m[1], stripFlags(m[2].trim()));
+
+  return { scss, css };
+}
+
+function stripFlags(value) {
+  return value.replace(/\s*!(?:default|global|important)\b/gi, '').trim();
 }
 
 function stripComments(text) {
@@ -180,7 +269,66 @@ function stripComments(text) {
     .replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
-function createResolver(rawScss, rawCss, errors) {
+// Merge all indexed files into one variable table for a given document.
+// Files closer to the document in the folder tree win over distant ones
+// (e.g. the theme's own `$primary` beats one from another project), and
+// `!default` declarations lose against regular ones.
+function buildRawMaps(docKey, docSegments) {
+  const ordered = [];
+  for (const [key, entry] of fileEntries) {
+    let score = 0;
+    if (key === docKey) score = Number.MAX_SAFE_INTEGER;
+    else {
+      const len = Math.min(entry.segments.length, docSegments.length);
+      while (score < len && entry.segments[score] === docSegments[score]) score++;
+    }
+    ordered.push({ entry, score });
+  }
+  ordered.sort((a, b) => a.score - b.score);
+
+  const rawScss = new Map();
+  const rawCss = new Map();
+  for (const isDefaultPass of [true, false]) {
+    for (const { entry } of ordered) {
+      for (const [name, decl] of entry.scss) {
+        if (decl.isDefault === isDefaultPass) rawScss.set(name, decl.value);
+      }
+    }
+  }
+  for (const { entry } of ordered) {
+    for (const [name, value] of entry.css) rawCss.set(name, value);
+  }
+  return { rawScss, rawCss };
+}
+
+function getTokenMap(document) {
+  const key = document.uri.toString();
+  const cached = resolvedCache.get(key);
+  if (cached && cached.generation === generation) return cached.tokenMap;
+
+  if (!fileEntries.has(key)) {
+    fileEntries.set(key, createEntry(document.uri, document.getText(), false));
+    generation++;
+  }
+
+  const { rawScss, rawCss } = buildRawMaps(key, pathSegments(document.uri));
+  const resolver = createResolver(rawScss, rawCss);
+  const tokenMap = new Map();
+  const text = document.getText();
+  let m;
+  TOKEN_REGEX.lastIndex = 0;
+  while ((m = TOKEN_REGEX.exec(text)) !== null) {
+    const token = m[0];
+    if (tokenMap.has(token)) continue;
+    const color = token[0] === '$' ? resolver.resolveScss(token.slice(1)) : resolver.resolveCss(token.slice(2));
+    tokenMap.set(token, color ? colorToCss(color) : null);
+  }
+
+  resolvedCache.set(key, { generation, tokenMap });
+  return tokenMap;
+}
+
+function createResolver(rawScss, rawCss) {
   const scssMemo = new Map();
   const cssMemo = new Map();
   const scssStack = new Set();
@@ -192,7 +340,7 @@ function createResolver(rawScss, rawCss, errors) {
     scssStack.add(name);
     const expr = rawScss.get(name);
     const result = expr ? evaluateExpression(expr, { resolveScss, resolveCss }) : null;
-    if (result) scssMemo.set(name, result);
+    scssMemo.set(name, result);
     scssStack.delete(name);
     return result;
   }
@@ -203,7 +351,7 @@ function createResolver(rawScss, rawCss, errors) {
     cssStack.add(name);
     const expr = rawCss.get(name);
     const result = expr ? evaluateExpression(expr, { resolveScss, resolveCss }) : null;
-    if (result) cssMemo.set(name, result);
+    cssMemo.set(name, result);
     cssStack.delete(name);
     return result;
   }
@@ -211,6 +359,57 @@ function createResolver(rawScss, rawCss, errors) {
   return { resolveScss, resolveCss };
 }
 
+// ---------------------------------------------------------------------------
+// Decorations
+// ---------------------------------------------------------------------------
+
+function scheduleLightRefresh() {
+  if (lightRefreshTimer) clearTimeout(lightRefreshTimer);
+  lightRefreshTimer = setTimeout(() => {
+    lightRefreshTimer = null;
+    applyToVisibleEditors();
+  }, 120);
+}
+
+async function applyToVisibleEditors() {
+  if (!isEnabled()) return clearDecorations();
+  if (scanPromise) await scanPromise;
+
+  const editors = getVisibleStyleEditors();
+  const nextResolved = new Map();
+  for (const editor of editors) {
+    try {
+      const tokenMap = getTokenMap(editor.document);
+      nextResolved.set(editor.document.uri.toString(), resolvedCache.get(editor.document.uri.toString()));
+      applyDecorations(editor, tokenMap);
+    } catch (err) {
+      logError(err);
+    }
+  }
+  resolvedCache = nextResolved;
+  pruneDecorationTypes(editors);
+}
+
+// Every distinct color gets its own decoration type; drop the ones no visible
+// editor uses anymore so they don't pile up while typing hex values.
+function pruneDecorationTypes(editors) {
+  if (decorationCache.size < 200) return;
+  const used = new Set();
+  for (const editor of editors) {
+    for (const color of editorDecorationState.get(editor) || []) used.add(color);
+  }
+  for (const [color, type] of decorationCache) {
+    if (used.has(color)) continue;
+    try { type.dispose(); } catch {}
+    decorationCache.delete(color);
+  }
+}
+
+function clearDecorations() {
+  for (const editor of vscode.window.visibleTextEditors) {
+    clearEditorDecorations(editor);
+  }
+}
 
 function applyDecorations(editor, tokenMap) {
   const text = editor.document.getText();
@@ -220,7 +419,7 @@ function applyDecorations(editor, tokenMap) {
   addGroupedDecorationsFromRegex(
     editor,
     text,
-    /(\$[a-zA-Z0-9_-]+|--[a-zA-Z0-9_-]+)/g,
+    new RegExp(TOKEN_REGEX.source, 'g'),
     (token) => tokenMap.get(token),
     grouped,
     claimedRanges,
@@ -286,9 +485,9 @@ function addLiteralDecorations(editor, text, grouped, claimedRanges) {
     }
   }
 
-  const nameRegex = new RegExp(`(?<![a-zA-Z0-9_$-])(${CSS_COLOR_KEYWORDS.join('|')})(?![a-zA-Z0-9_-])`, 'gi');
   let nameMatch;
-  while ((nameMatch = nameRegex.exec(text)) !== null) {
+  NAMED_COLOR_REGEX.lastIndex = 0;
+  while ((nameMatch = NAMED_COLOR_REGEX.exec(text)) !== null) {
     const literal = nameMatch[0];
     const colorObj = parseNamedColor(literal);
     if (!colorObj) continue;
@@ -306,11 +505,7 @@ function addDecoration(editor, grouped, claimedRanges, startIndex, length, color
   if (existing) {
     const arr = grouped.get(existing.color);
     if (arr) {
-      const idx = arr.findIndex((item) => {
-        const s = editor.document.offsetAt(item.range.start);
-        const e = editor.document.offsetAt(item.range.end);
-        return `${s}:${e}` === key;
-      });
+      const idx = arr.indexOf(existing.item);
       if (idx >= 0) arr.splice(idx, 1);
     }
   }
@@ -320,10 +515,12 @@ function addDecoration(editor, grouped, claimedRanges, startIndex, length, color
     editor.document.positionAt(startIndex + length)
   );
 
+  const item = { range, hoverMessage };
   if (!grouped.has(color)) grouped.set(color, []);
-  grouped.get(color).push({ range, hoverMessage });
-  claimedRanges.set(key, { color, priority });
+  grouped.get(color).push(item);
+  claimedRanges.set(key, { color, priority, item });
 }
+
 
 function isInsideIdentifier(text, index, length) {
   const before = index > 0 ? text[index - 1] : '';
@@ -670,6 +867,7 @@ const CSS_NAMED_COLORS = {
   "yellowgreen": "#9acd32"
 };
 const CSS_COLOR_KEYWORDS = Object.keys(CSS_NAMED_COLORS).sort((a, b) => b.length - a.length);
+const NAMED_COLOR_REGEX = new RegExp(`(?<![a-zA-Z0-9_$-])(${CSS_COLOR_KEYWORDS.join('|')})(?![a-zA-Z0-9_-])`, 'gi');
 
 function parseNamedColor(value) {
   const hex = CSS_NAMED_COLORS[String(value).toLowerCase()];
