@@ -2,7 +2,7 @@
   "name": "dg-scss-color-preview",
   "displayName": "DG SCSS Color Preview",
   "description": "Inline color previews for SCSS variables, CSS custom properties, and selected derived color patterns.",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "publisher": "Azragh",
   "license": "MIT",
   "repository": {
@@ -65,6 +65,21 @@
           "type": "boolean",
           "default": false,
           "description": "Draw a subtle outline around colors that blend into the editor background (e.g. near-black on a dark theme)."
+        },
+        "scssColorPreview.lightDark": {
+          "type": "string",
+          "enum": [
+            "both",
+            "light",
+            "dark"
+          ],
+          "enumDescriptions": [
+            "Split the underline: left half light value, right half dark value.",
+            "Only preview the light value of light-dark().",
+            "Only preview the dark value of light-dark()."
+          ],
+          "default": "both",
+          "description": "How colors defined with light-dark() are previewed."
         }
       }
     }
