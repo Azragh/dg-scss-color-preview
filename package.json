@@ -2,7 +2,7 @@
   "name": "dg-scss-color-preview",
   "displayName": "DG SCSS Color Preview",
   "description": "Inline color previews for SCSS variables, CSS custom properties, and selected derived color patterns.",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "publisher": "Azragh",
   "license": "MIT",
   "repository": {
@@ -74,7 +74,7 @@
             "dark"
           ],
           "enumDescriptions": [
-            "Split the underline: left half light value, right half dark value.",
+            "Split the underline: the first three characters show the light value, the rest the dark value.",
             "Only preview the light value of light-dark().",
             "Only preview the dark value of light-dark()."
           ],

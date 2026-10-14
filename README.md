@@ -47,7 +47,7 @@ The screenshot above shows how the extension previews resolved colors directly i
   - custom `shade(...)`
   - custom `alpha(...)`
 - Supports `var(--token)` references
-- Supports `light-dark(...)`: the underline is split into the light (left half) and dark (right half) value, including everything derived from it (setting `scssColorPreview.lightDark`: `both`, `light` or `dark`)
+- Supports `light-dark(...)`: the underline shows the light value on the first three characters and the dark value on the rest, including everything derived from it (setting `scssColorPreview.lightDark`: `both`, `light` or `dark`)
 - Supports direct color literals such as:
   - hex values
   - `rgb(...)`

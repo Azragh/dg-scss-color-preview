@@ -22,7 +22,8 @@ const DEFAULT_EXCLUDES = [
 ];
 const EXCLUDED_PATH_REGEX = /[\\/](node_modules|\.git|dist|build|\.next|\.nuxt|vendor|wp-admin|wp-includes)[\\/]|[\\/]wp-content[\\/](plugins|mu-plugins|uploads|cache|upgrade)[\\/]|\.min\.css$/i;
 const MAX_FILE_BYTES = 512 * 1024;
-const TOKEN_REGEX = /(\$[a-zA-Z0-9_-]+|--[a-zA-Z0-9_-]+)/g;
+const LIGHT_DARK_LEAD_CHARS = 3;
+const TOKEN_REGEX =/(\$[a-zA-Z0-9_-]+|--[a-zA-Z0-9_-]+)/g;
 
 let output;
 let docChangeTimer = null;
@@ -530,9 +531,10 @@ function addGroupedDecorationsFromRegex(editor, text, regex, colorGetter, groupe
     if (!color) continue;
 
     if (typeof color === 'object') {
-      // light-dark(): left half shows the light value, right half the dark one.
+      // light-dark(): a fixed-width lead shows the light value, the rest the
+      // dark one. A constant split point keeps aligned columns tidy.
       const hover = `${token} → light: ${color.light} | dark: ${color.dark}`;
-      const half = Math.ceil(token.length / 2);
+      const half = Math.min(LIGHT_DARK_LEAD_CHARS, Math.ceil(token.length / 2));
       addDecoration(editor, grouped, claimedRanges, match.index, half, color.light, hover, priority);
       addDecoration(editor, grouped, claimedRanges, match.index + half, token.length - half, color.dark, hover, priority);
       continue;
