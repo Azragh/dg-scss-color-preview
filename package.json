@@ -2,7 +2,7 @@
   "name": "dg-scss-color-preview",
   "displayName": "DG SCSS Color Preview",
   "description": "Inline color previews for SCSS variables, CSS custom properties, and selected derived color patterns.",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "publisher": "Azragh",
   "license": "MIT",
   "repository": {
@@ -60,6 +60,11 @@
           },
           "default": [],
           "description": "Additional glob patterns to skip when indexing, e.g. **/legacy/**."
+        },
+        "scssColorPreview.contrastOutline": {
+          "type": "boolean",
+          "default": false,
+          "description": "Draw a subtle outline around colors that blend into the editor background (e.g. near-black on a dark theme)."
         }
       }
     }

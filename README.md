@@ -59,7 +59,7 @@ The screenshot above shows how the extension previews resolved colors directly i
 - Supports standard CSS color names such as `white`, `black`, `red`, `orange`, `green`, or `dodgerblue`
 - Avoids duplicate decorations where a resolved token and a nested literal would otherwise overlap
 - Commented-out declarations are used as a fallback, so preview-only demo blocks can stay commented out
-- Colors that blend into the editor background (e.g. near-black on a dark theme) get a subtle outline
+- Optional setting `scssColorPreview.contrastOutline`: colors that blend into the editor background (e.g. near-black on a dark theme) get a subtle outline
 - Lightweight indexing: files are read directly instead of being opened as editor documents, WordPress core / plugins, `node_modules`, `vendor` and build folders are skipped, and variables from files closest to the current document take precedence
 - Setting `scssColorPreview.exclude` for additional glob patterns to skip
 

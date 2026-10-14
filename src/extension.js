@@ -77,12 +77,15 @@ function activate(context) {
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => rescanWorkspace('workspace-folders')),
     vscode.window.onDidChangeActiveColorTheme(() => {
-      clearDecorations();
-      disposeDecorationCache();
-      applyToVisibleEditors();
+      if (isContrastOutlineEnabled()) redrawDecorations();
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('scssColorPreview')) rescanWorkspace('configuration');
+      if (!e.affectsConfiguration('scssColorPreview')) return;
+      // Pure styling setting: recreate the decoration types, no rescan needed.
+      const styleOnly = e.affectsConfiguration('scssColorPreview.contrastOutline')
+        && !['enabled', 'maxFiles', 'exclude'].some((key) => e.affectsConfiguration(`scssColorPreview.${key}`));
+      if (styleOnly) redrawDecorations();
+      else rescanWorkspace('configuration');
     }),
     watcher,
     watcher.onDidChange((uri) => queueFsChange(uri, 'change')),
@@ -108,6 +111,16 @@ function disposeDecorationCache() {
 
 function isEnabled() {
   return vscode.workspace.getConfiguration('scssColorPreview').get('enabled', true);
+}
+
+function isContrastOutlineEnabled() {
+  return vscode.workspace.getConfiguration('scssColorPreview').get('contrastOutline', false);
+}
+
+function redrawDecorations() {
+  clearDecorations();
+  disposeDecorationCache();
+  applyToVisibleEditors();
 }
 
 function isSupportedDocument(document) {
@@ -592,8 +605,8 @@ function getDecorationType(color) {
   if (decorationCache.has(color)) return decorationCache.get(color);
 
   const type = vscode.window.createTextEditorDecorationType({
-    // Swatches that blend into the editor background get a faint outline.
-    outline: needsContrastOutline(color)
+    // Optional: swatches that blend into the editor background get a faint outline.
+    outline: isContrastOutlineEnabled() && needsContrastOutline(color)
       ? `1px solid ${isDarkTheme() ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)'}`
       : undefined,
     backgroundColor: toSoftBackground(color),
