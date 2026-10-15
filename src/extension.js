@@ -41,6 +41,8 @@ const RANK_REGULAR = 2;
 const fileEntries = new Map();
 // key (uri string) -> { generation, tokenMap }
 let resolvedCache = new Map();
+// Mirrors the scssColorPreview.hover setting, refreshed on every redraw.
+let showHover = false;
 let generation = 0;
 const pendingDocs = new Map();
 const pendingFsChanges = new Map();
@@ -448,6 +450,7 @@ async function applyToVisibleEditors() {
   if (!isEnabled()) return clearDecorations();
   if (scanPromise) await scanPromise;
 
+  showHover = vscode.workspace.getConfiguration('scssColorPreview').get('hover', false);
   const editors = getVisibleStyleEditors();
   const nextResolved = new Map();
   for (const editor of editors) {
@@ -598,7 +601,7 @@ function addDecoration(editor, grouped, claimedRanges, startIndex, length, color
     editor.document.positionAt(startIndex + length)
   );
 
-  const item = { range, hoverMessage };
+  const item = showHover ? { range, hoverMessage } : { range };
   if (!grouped.has(color)) grouped.set(color, []);
   grouped.get(color).push(item);
   claimedRanges.set(key, { color, priority, item });
