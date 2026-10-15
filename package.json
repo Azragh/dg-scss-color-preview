@@ -2,7 +2,7 @@
   "name": "dg-scss-color-preview",
   "displayName": "DG SCSS Color Preview",
   "description": "Inline color previews for SCSS variables, CSS custom properties, and selected derived color patterns.",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "publisher": "Azragh",
   "license": "MIT",
   "repository": {
@@ -86,6 +86,11 @@
           "default": 5,
           "minimum": 1,
           "description": "Number of characters at the start of a light-dark() variable that show the light value. Very short names are split in the middle."
+        },
+        "scssColorPreview.hover": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a hover tooltip with the resolved color value."
         }
       }
     }

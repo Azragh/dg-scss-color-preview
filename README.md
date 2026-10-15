@@ -69,7 +69,7 @@ The custom helpers are expected to look like this:
 
 ### light-dark()
 
-Colors defined with `light-dark(...)`, and everything derived from them, show **both** values: the first characters of the underline show the light value, the rest the dark value. Hover a variable to see both colors.
+Colors defined with `light-dark(...)`, and everything derived from them, show **both** values: the first characters of the underline show the light value, the rest the dark value. With `scssColorPreview.hover` enabled, hovering a variable shows both colors.
 
 ### Lightweight indexing
 
@@ -84,6 +84,7 @@ Colors defined with `light-dark(...)`, and everything derived from them, show **
 | `scssColorPreview.enabled` | `true` | Enable or disable all previews |
 | `scssColorPreview.lightDark` | `both` | How `light-dark()` is previewed: `both`, `light` or `dark` |
 | `scssColorPreview.lightDarkLeadChars` | `5` | Number of characters that show the light value |
+| `scssColorPreview.hover` | `false` | Show a hover tooltip with the resolved color value |
 | `scssColorPreview.contrastOutline` | `false` | Subtle outline for colors that blend into the editor background (e.g. near-black on a dark theme) |
 | `scssColorPreview.exclude` | `[]` | Additional glob patterns to skip when indexing |
 | `scssColorPreview.maxFiles` | `300` | Maximum number of style files to index |
